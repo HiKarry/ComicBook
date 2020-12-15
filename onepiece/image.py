@@ -62,6 +62,21 @@ class ImageDownloader(object):
                 return target_path
             except Exception:
                 pass
+        '''
+        else:
+            #尝试读取webp图片
+            webp_path = target_path.replace('.jpg', '.webp')
+            print(webp_path)
+            if os.path.exists(webp_path):
+                try:
+                    with PIL.Image.open(webp_path) as img:
+                        img.save(target_path)
+                    os.unlink(webp_path)
+                    return target_path
+                except Exception:
+                    pass
+        '''
+
         try:
             session = self.get_session()
             response = session.get(image_url, timeout=self.timeout, **kwargs)
@@ -75,7 +90,10 @@ class ImageDownloader(object):
         with open(target_path, 'wb') as f:
             f.write(response.content)
         try:
-            self.verify_image(target_path)
+            # self.verify_image(target_path)
+            #将图片另存为jpg格式
+            with PIL.Image.open(target_path) as img:
+                img.save(target_path)
         except UnidentifiedImageError as e:
             os.unlink(target_path)
             raise ImageDownloadError(f'Corrupt image from {image_url}') from e
@@ -85,12 +103,12 @@ class ImageDownloader(object):
         return target_path
 
     def verify_image(self, image_path):
-        suffix = image_path.split('.')[-1]
-        webp_head = bytes.fromhex("524946462A73010057454250")
-        if suffix.lower() == 'webp':
-            head = open(image_path, 'rb').read(12)
-            if head[:4] == webp_head[:4] and head[-4:] == webp_head[-4:]:
-                return True
+        # suffix = image_path.split('.')[-1]
+        # webp_head = bytes.fromhex("524946462A73010057454250")
+        # if suffix.lower() == 'webp':
+            # head = open(image_path, 'rb').read(12)
+            # if head[:4] == webp_head[:4] and head[-4:] == webp_head[-4:]:
+                # return True
         with PIL.Image.open(image_path) as img:
             img.verify()
 
@@ -133,6 +151,9 @@ class ImageDownloader(object):
         """
         url = image_url.split('?')[0]
         ext = url.rsplit('.', 1)[-1].lower()
+        #不使用webp格式，因为很多漫画阅读不支持
+        if ext == 'webp':
+            return default
         if ext in allow:
             return ext
         return default

@@ -21,7 +21,9 @@ REQUIRED = [
     "requests[socks]",
     "PyExecJS",
     "bs4",
-    "jsbeautifier"
+    "jsbeautifier",
+    "lzstring",
+    "dukpy"
 ]
 
 # What packages are optional?

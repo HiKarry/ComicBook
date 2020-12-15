@@ -4,3 +4,5 @@ requests[socks]
 PyExecJS
 bs4
 jsbeautifier
+lzstring
+dukpy

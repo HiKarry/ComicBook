@@ -2,10 +2,13 @@ import re
 import json
 from urllib.parse import urljoin
 import logging
+import json
 
-import execjs
+import dukpy
+import lzstring
 
 from ..crawlerbase import CrawlerBase
+from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +21,9 @@ class ManhuaguiCrawler(CrawlerBase):
 
     IMAGE_URL_PREFIX = 'https://i.hamreus.com'
     LOGIN_URL = urljoin(SITE_INDEX, "/user/login")
-    REQUIRE_JAVASCRIPT = True
+    COMICID_PATTERN = re.compile(r'/comic/(\d+)/?')
 
-    DEFAULT_COMICID = 19430
+    DEFAULT_COMICID = '19430'
     DEFAULT_SEARCH_NAME = '鬼灭之刃'
     TAGS = [
         dict(name='连载漫画', tag='lianzai'),
@@ -63,6 +66,12 @@ class ManhuaguiCrawler(CrawlerBase):
             book.add_tag(name=name, tag=tag)
 
         chapter_soup = soup.find('div', {'class': 'chapter'})
+        adult_input = soup.find('input', {'id': '__VIEWSTATE'})
+        if adult_input is not None:
+            adult_encoded_value = adult_input.get('value')
+            if len(adult_encoded_value) > 0:
+                adult_decoded_value = lzstring.LZString().decompressFromBase64(adult_encoded_value)
+                chapter_soup = BeautifulSoup(adult_decoded_value, 'html.parser')
         h4_list = chapter_soup.find_all('h4')
         div_list = chapter_soup.find_all('div', {'class': 'chapter-list'})
         idx = 1
@@ -83,9 +92,17 @@ class ManhuaguiCrawler(CrawlerBase):
                         ext_idx[name] += 1
         return book
 
+    def get_image_data_from_page(self, html):
+        js = re.search(r">window.*(\(function\(p.*?)</script>", html).group(1)
+        b64_str = re.search(r"[0-9],'([A-Za-z0-9+/=]+?)'", js).group(1)
+        s = lzstring.LZString.decompressFromBase64(b64_str)
+        new_js = re.sub(r"'[A-Za-z0-9+/=]*'\[.*\]\('\\x7c'\)", "'"+ s +"'.split('|')", js)
+        res = dukpy.evaljs(new_js)
+        return json.loads(re.search(r"(\{.*\})", res).group(1))
+
     def get_chapter_item(self, citem):
         html = self.get_html(citem.source_url)
-        data = self.extract_mhg_js(html)
+        data = self.get_image_data_from_page(html)
         image_urls = []
         for i in data['files']:
             url = self.IMAGE_URL_PREFIX + data['path'] + i + '?e=%(e)s&m=%(m)s' % (data['sl'])
@@ -94,187 +111,6 @@ class ManhuaguiCrawler(CrawlerBase):
                                      title=citem.title,
                                      image_urls=image_urls,
                                      source_url=citem.source_url)
-
-    def extract_mhg_js(self, html):
-        js = '(function' + re.findall('function(.*?)</script>', html)[0]
-        fun = """
-                var LZString = (function() {
-                var f = String.fromCharCode;
-                var keyStrBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
-                var baseReverseDic = {};
-                function getBaseValue(alphabet, character) {
-                    if (!baseReverseDic[alphabet]) {
-                        baseReverseDic[alphabet] = {};
-                        for (var i = 0; i < alphabet.length; i++) {
-                            baseReverseDic[alphabet][alphabet.charAt(i)] = i
-                        }
-                    }
-                    return baseReverseDic[alphabet][character]
-                }
-                var LZString = {
-                    decompressFromBase64: function(input) {
-                        if (input == null)
-                            return "";
-                        if (input == "")
-                            return null;
-                        return LZString._0(input.length, 32, function(index) {
-                            return getBaseValue(keyStrBase64, input.charAt(index))
-                        })
-                    },
-                    _0: function(length, resetValue, getNextValue) {
-                        var dictionary = [], next, enlargeIn = 4, dictSize = 4, numBits = 3, entry = "", result = [], i, w, bits, resb, maxpower, power, c, data = {
-                            val: getNextValue(0),
-                            position: resetValue,
-                            index: 1
-                        };
-                        for (i = 0; i < 3; i += 1) {
-                            dictionary[i] = i
-                        }
-                        bits = 0;
-                        maxpower = Math.pow(2, 2);
-                        power = 1;
-                        while (power != maxpower) {
-                            resb = data.val & data.position;
-                            data.position >>= 1;
-                            if (data.position == 0) {
-                                data.position = resetValue;
-                                data.val = getNextValue(data.index++)
-                            }
-                            bits |= (resb > 0 ? 1 : 0) * power;
-                            power <<= 1
-                        }
-                        switch (next = bits) {
-                        case 0:
-                            bits = 0;
-                            maxpower = Math.pow(2, 8);
-                            power = 1;
-                            while (power != maxpower) {
-                                resb = data.val & data.position;
-                                data.position >>= 1;
-                                if (data.position == 0) {
-                                    data.position = resetValue;
-                                    data.val = getNextValue(data.index++)
-                                }
-                                bits |= (resb > 0 ? 1 : 0) * power;
-                                power <<= 1
-                            }
-                            c = f(bits);
-                            break;
-                        case 1:
-                            bits = 0;
-                            maxpower = Math.pow(2, 16);
-                            power = 1;
-                            while (power != maxpower) {
-                                resb = data.val & data.position;
-                                data.position >>= 1;
-                                if (data.position == 0) {
-                                    data.position = resetValue;
-                                    data.val = getNextValue(data.index++)
-                                }
-                                bits |= (resb > 0 ? 1 : 0) * power;
-                                power <<= 1
-                            }
-                            c = f(bits);
-                            break;
-                        case 2:
-                            return ""
-                        }
-                        dictionary[3] = c;
-                        w = c;
-                        result.push(c);
-                        while (true) {
-                            if (data.index > length) {
-                                return ""
-                            }
-                            bits = 0;
-                            maxpower = Math.pow(2, numBits);
-                            power = 1;
-                            while (power != maxpower) {
-                                resb = data.val & data.position;
-                                data.position >>= 1;
-                                if (data.position == 0) {
-                                    data.position = resetValue;
-                                    data.val = getNextValue(data.index++)
-                                }
-                                bits |= (resb > 0 ? 1 : 0) * power;
-                                power <<= 1
-                            }
-                            switch (c = bits) {
-                            case 0:
-                                bits = 0;
-                                maxpower = Math.pow(2, 8);
-                                power = 1;
-                                while (power != maxpower) {
-                                    resb = data.val & data.position;
-                                    data.position >>= 1;
-                                    if (data.position == 0) {
-                                        data.position = resetValue;
-                                        data.val = getNextValue(data.index++)
-                                    }
-                                    bits |= (resb > 0 ? 1 : 0) * power;
-                                    power <<= 1
-                                }
-                                dictionary[dictSize++] = f(bits);
-                                c = dictSize - 1;
-                                enlargeIn--;
-                                break;
-                            case 1:
-                                bits = 0;
-                                maxpower = Math.pow(2, 16);
-                                power = 1;
-                                while (power != maxpower) {
-                                    resb = data.val & data.position;
-                                    data.position >>= 1;
-                                    if (data.position == 0) {
-                                        data.position = resetValue;
-                                        data.val = getNextValue(data.index++)
-                                    }
-                                    bits |= (resb > 0 ? 1 : 0) * power;
-                                    power <<= 1
-                                }
-                                dictionary[dictSize++] = f(bits);
-                                c = dictSize - 1;
-                                enlargeIn--;
-                                break;
-                            case 2:
-                                return result.join('')
-                            }
-                            if (enlargeIn == 0) {
-                                enlargeIn = Math.pow(2, numBits);
-                                numBits++
-                            }
-                            if (dictionary[c]) {
-                                entry = dictionary[c]
-                            } else {
-                                if (c === dictSize) {
-                                    entry = w + w.charAt(0)
-                                } else {
-                                    return null
-                                }
-                            }
-                            result.push(entry);
-                            dictionary[dictSize++] = w + entry.charAt(0);
-                            enlargeIn--;
-                            w = entry;
-                            if (enlargeIn == 0) {
-                                enlargeIn = Math.pow(2, numBits);
-                                numBits++
-                            }
-                        }
-                    }
-                };
-                return LZString
-            }
-            )();
-            String.prototype.splic = function(f) {
-                return LZString.decompressFromBase64(this).split(f)
-            }
-            ;
-
-        """
-        comic = execjs.compile(fun).eval(js)
-        imgData = re.findall(r"SMH\.imgData\((.*?)\)\.preInit\(\)\;", comic)[0]
-        return json.loads(imgData)
 
     def search(self, name, page=1, size=None):
         url = urljoin(self.SITE_INDEX, '/s/{}_p{}.html'.format(name, page))

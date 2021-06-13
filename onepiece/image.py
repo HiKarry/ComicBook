@@ -90,6 +90,9 @@ class ImageDownloader(object):
             # self.verify_image(target_path)
             #将图片另存为jpg格式
             with PIL.Image.open(target_path) as img:
+                # if img.mode == 'P' or img.mode == 'RGBA':
+                if img.mode == 'P':
+                    img = img.convert('RGB')
                 img.save(target_path)
         except UnidentifiedImageError as e:
             os.unlink(target_path)
